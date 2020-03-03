@@ -1,0 +1,143 @@
+
+#region Let's explore the virtual machines and their operating systems
+
+Search-AzGraph -Query "Resources | summarize count()"
+
+Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Compute/virtualMachines' | summarize count()"
+
+Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Compute/virtualMachines' and name == 'LON-CL1'"
+
+Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Compute/virtualMachines' and name == 'LON-CL1'" | Get-Member
+
+Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Compute/virtualMachines' and name == 'LON-CL1'" | Select-Object -ExpandProperty Properties -OutVariable Properties
+
+$Properties.storageProfile.osDisk.osType
+
+az graph query -q "where type =~ 'Microsoft.Compute/virtualMachines' and name == 'LON-CL1'"
+
+Search-AzGraph -Query "where type =~ 'Microsoft.Compute/virtualMachines' | summarize count() by tostring(properties.storageProfile.osDisk.osType)"
+
+Search-AzGraph -Query "where type =~ 'Microsoft.Compute/virtualMachines' | summarize count() by tostring(properties.storageProfile.osDisk.osType) | project OS=properties_storageProfile_osDisk_osType, Total=count_"
+
+#endregion
+
+#region Various examples
+
+# unassigned public IP addresses
+Search-AzGraph -Query "where type =~ 'Microsoft.Network/publicIPAddresses' and not(isnotempty(properties.ipConfiguration))"
+
+Search-AzGraph -Query "where type =~ 'Microsoft.Compute/virtualMachines' | summarize count() by tostring(properties.hardwareProfile.vmSize)| project VMSize=properties_hardwareProfile_vmSize, total=count_"
+
+Search-AzGraph -Query "where type =~ 'Microsoft.Compute/virtualMachines' | where tostring(properties.storageProfile.osDisk.osType) =~ 'linux' | project  VMSize = tostring(properties.hardwareProfile.vmSize)| summarize count() by VMSize"
+
+Search-AzGraph -Query "summarize count() by location | project total=count_, location | order by total desc"
+
+Search-AzGraph -Query  "where type =~ 'Microsoft.Storage/storageAccounts' | summarize count() by kind"
+
+#endregion
+
+#region Explore virtual machines to find public IP addresses
+
+#region Azure CLI
+# Use Resource Graph to get all NICs and store in the 'nics.txt' file
+az graph query -q "Resources | where type =~ 'Microsoft.Compute/virtualMachines' | project nic = tostring(properties['networkProfile']['networkInterfaces'][0]['id']) | where isnotempty(nic) | distinct nic | limit 20" --output table | tail -n +3 > nics.txt
+
+# Review the output of the query stored in 'nics.txt'
+cat nics.txt
+
+# Use Resource Graph with the 'nics.txt' file to get all related public IP addresses and store in 'publicIp.txt' file
+az graph query -q="Resources | where type =~ 'Microsoft.Network/networkInterfaces' | where id in ('$(awk -vORS="','" '{print $0}' nics.txt | sed 's/,$//')') | project publicIp = tostring(properties['ipConfigurations'][0]['properties']['publicIPAddress']['id']) | where isnotempty(publicIp) | distinct publicIp" --output table | tail -n +3 > ips.txt
+
+# Review the output of the query stored in 'ips.txt'
+cat ips.txt
+
+# Use Resource Graph with the 'ips.txt' file to get the IP address of the public IP address resources
+az graph query -q="Resources | where type =~ 'Microsoft.Network/publicIPAddresses' | where id in ('$(awk -vORS="','" '{print $0}' ips.txt | sed 's/,$//')') | project ip = tostring(properties['ipAddress']) | where isnotempty(ip) | distinct ip" --output table
+#endregion
+
+#region Powershell
+# Use Resource Graph to get all NICs and store in the $nics variable
+$nics = Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Compute/virtualMachines' | project nic = tostring(properties['networkProfile']['networkInterfaces'][0]['id']) | where isnotempty(nic) | distinct nic | limit 20"
+
+# Review the output of the query stored in the variable
+$nics.nic
+
+# Use Resource Graph  with the $nics variable to get all related public IP addresses and store in $ips variable
+$ips = Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Network/networkInterfaces' | where id in ('$($nics.nic -join "','")') | project publicIp = tostring(properties['ipConfigurations'][0]['properties']['publicIPAddress']['id']) | where isnotempty(publicIp) | distinct publicIp"
+
+# Review the output of the query stored in the variable
+$ips.publicIp
+
+# Use Resource Graph with the $ips variable to get the IP address of the public IP address resources
+Search-AzGraph -Query "Resources | where type =~ 'Microsoft.Network/publicIPAddresses' | where id in ('$($ips.publicIp -join "','")') | project ip = tostring(properties['ipAddress']) | where isnotempty(ip) | distinct ip"
+#endregion
+
+#region Single query with "join"
+
+$query = @"
+Resources
+| where type =~ 'microsoft.compute/virtualmachines'
+| extend nics=array_length(properties.networkProfile.networkInterfaces) 
+| mvexpand nic=properties.networkProfile.networkInterfaces 
+| where nics == 1 or nic.properties.primary =~ 'true' or isempty(nic) 
+| project vmId = id, vmName = name, vmSize=tostring(properties.hardwareProfile.vmSize), nicId = tostring(nic.id) 
+| join kind=leftouter (
+    Resources
+    | where type =~ 'microsoft.network/networkinterfaces'
+    | extend ipConfigsCount=array_length(properties.ipConfigurations) 
+    | mvexpand ipconfig=properties.ipConfigurations 
+    | where ipConfigsCount == 1 or ipconfig.properties.primary =~ 'true'
+    | project nicId = id, publicIpId = tostring(ipconfig.properties.publicIPAddress.id))
+on nicId
+| project-away nicId1
+| summarize by vmId, vmName, vmSize, nicId, publicIpId
+| join kind=leftouter (
+    Resources
+    | where type =~ 'microsoft.network/publicipaddresses'
+    | project publicIpId = id, publicIpAddress = properties.ipAddress)
+on publicIpId
+| project-away publicIpId1
+"@
+
+Search-AzGraph -Query $query | Where-Object publicIPAddress | Select-Object publicIPAddress
+#endregion
+
+#endregion
+
+#region Shared queries from the command line
+az resource list --resource-type Microsoft.ResourceGraph/queries -o table
+
+$query1 = az resource show --resource-type Microsoft.ResourceGraph/queries `
+    -g resource-graph-queries -n 'Shared Resource Graph queries' --query properties.query -o tsv
+
+$query1 = $query1 -join ''
+
+Search-AzGraph -Query $query1
+az graph query -q $query1
+
+function Get-SharedQuery {
+
+    [CmdletBinding()]
+    param (
+        [Parameter()]
+        [string]
+        $QueryName
+    )
+
+    Search-AzGraph -Query "where type =~ 'Microsoft.ResourceGraph/queries'" |
+        Where-Object name -match $QueryName |
+        Select-Object -ExpandProperty Properties |
+        Select-Object -ExpandProperty query
+}
+
+
+$scriptBlock = { Search-AzGraph -Query "where type =~ 'Microsoft.ResourceGraph/queries' | project name" | ForEach-Object {"'$($_.name)'"} }
+
+Register-ArgumentCompleter -CommandName Get-SharedQuery -ParameterName QueryName -ScriptBlock $scriptBlock
+
+Get-SharedQuery -QueryName 'Count VMs by OS' -OutVariable query
+
+Search-AzGraph "$query"
+
+#endregion
+
