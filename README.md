@@ -1,6 +1,8 @@
 # Azure Saturday Belgrade 2020
 This repository is the hub for slide decks and code files used on Azure Saturday Serbia 2020 sessions.
 
+![Azure Saturday](https://azuresaturday.rs/wp-content/uploads/2019/08/cropped-AzureSaturdayLogo-2-1.png)
+
 |**Speaker**|**Session**|**Content**|
 |-|-|-|
 |Aleksandar Nikolic|Exploring Azure with Resource Graph|[Presentation](https://github.com/azure-serbia/azuresaturday-2020/tree/master/%5BAleksandar%20Nikolic%5D%20Exploring%20Azure%20with%20Resource%20Graph)|
