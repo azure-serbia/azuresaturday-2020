@@ -1,0 +1,8 @@
+SELECT
+     *
+   INTO
+   ServiceBusQueue
+FROM
+    IoTCircusHub
+WHERE
+    IsFirst(minute, 5) = 1

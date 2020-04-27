@@ -1,0 +1,10 @@
+SELECT
+    CASE
+        WHEN Temperature>24 
+        THEN CONCAT( CAST(Temperature AS nvarchar(max)), 'C Alert Hot!')
+        ELSE CONCAT( CAST(Temperature AS nvarchar(max)), 'C Warm!')
+    END AS TempAlert
+INTO
+   ServiceBusQueue
+FROM
+    IoTCircusHub

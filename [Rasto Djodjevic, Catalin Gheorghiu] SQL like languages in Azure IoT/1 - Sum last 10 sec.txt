@@ -1,0 +1,8 @@
+SELECT
+    SUM(CAST(temperature AS BIGINT)) AS Hot
+INTO
+   ServiceBusQueue
+FROM
+    IoTCircusHub 
+GROUP BY
+    TumblingWindow(second, 10)

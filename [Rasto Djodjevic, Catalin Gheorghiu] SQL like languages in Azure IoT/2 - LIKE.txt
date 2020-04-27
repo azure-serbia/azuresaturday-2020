@@ -1,0 +1,8 @@
+SELECT
+    *
+INTO
+   ServiceBusQueue
+FROM
+    IoTCircusHub
+WHERE
+ DeviceId LIKE 'Rasp%'

@@ -1,0 +1,12 @@
+SELECT
+     Temperature
+   INTO
+   ServiceBusQueue
+FROM
+    IoTCircusHub 
+WHERE
+     LAG(Temperature, 1) OVER (LIMIT DURATION(minute, 1)) <> Temperature
+
+ Use LAG to peek into the input stream one event back and get the 
+temperature value. Then compare it to the temperature
+value on the current event and output the event if they are different.
